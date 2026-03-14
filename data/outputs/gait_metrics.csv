@@ -1,0 +1,11 @@
+metric,value,unit
+cadence,74.79431563201197,steps/min
+stride_time,0.9541402354570636,s
+stride_length,0.0788691354746654,m
+stance_phase_duration,0.36295290858725743,s
+swing_phase_duration,0.522207756232687,s
+knee_flexion_max,0.0,degrees
+hip_extension_max,0.0,degrees
+symmetry_index,0.721450275944898,index
+analysis_duration,12.033,s
+total_strides,13.0,count
