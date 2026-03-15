@@ -4,26 +4,53 @@ Comprehensive biomechanics analysis for running gait using MediaPipe Pose landma
 
 ## Overview
 
-This module provides tools for analyzing running gait patterns, detecting gait events, and computing biomechanical metrics from video data processed with MediaPipe Pose Landmarker.
+This module provides tools for analyzing running gait patterns, detecting gait events, and computing biomechanical metrics from video data processed with MediaPipe Pose Landmarker. It implements state-of-the-art biomechanics algorithms with a clean, extensible architecture.
 
 ## Features
 
-- **Event Detection**: Automatic detection of heel strikes and toe offs
+- **Event Detection**: Automatic detection of heel strikes and toe offs using multi-criteria kinematic algorithms
 - **Stride Analysis**: Calculate stride length, stride time, stance/swing phases
-- **Cadence Calculation**: Measure running rhythm (steps per minute)
-- **Symmetry Assessment**: Compare left vs right side biomechanics
+- **Cadence Calculation**: Measure running rhythm (steps per minute) with primary and fallback methods
+- **Symmetry Assessment**: Compare left vs right side biomechanics across temporal, spatial, and kinematic domains
 - **Joint Angle Analysis**: Compute knee and hip angles throughout gait cycle
+- **Signal Processing**: Savitzky-Golay filtering, peak detection with physiological constraints, missing data interpolation, outlier filtering
+- **Statistical Analysis**: Mean/SD, coefficient of variation, Pearson correlation for pattern matching, multiple symmetry index formulas
+- **Error Handling**: Graceful handling of missing landmarks, validation of physiological ranges, fallback algorithms when primary methods fail
 
 ## Module Structure
 
 ```
 analysis/
-├── __init__.py          # Module exports
-├── metrics.py           # Core data structures and base classes
+├── __init__.py          # Module exports and public API
+├── metrics.py           # Core data structures, base classes, and orchestrator
 ├── stride.py            # Stride detection and analysis
 ├── cadence.py           # Cadence calculation
-└── symmetry.py          # Bilateral symmetry assessment
+├── symmetry.py          # Bilateral symmetry assessment
+└── README.md            # This documentation
 ```
+
+### metrics.py
+
+Core data structures and the analysis orchestrator.
+
+- `GaitEventType` (Enum): HEEL_STRIKE, TOE_OFF, MID_STANCE, MID_SWING
+- `Foot` (Enum): LEFT, RIGHT
+- `GaitEvent` (dataclass): A single gait event with timestamp, frame number, foot, and landmark data
+- `GaitMetrics` (dataclass): Comprehensive container for all gait analysis results
+- `BaseMetricCalculator` (ABC): Abstract base for all analyzers — provides angle calculation, coordinate extraction, and enforces a consistent `calculate()` interface
+- `GaitAnalyzer`: Coordinates multiple calculators in sequence, aggregates results into a unified `GaitMetrics` object, and passes detected events between calculators
+
+### stride.py
+
+Stride detection and analysis using kinematic algorithms. Detects heel strikes (vertical position + velocity + foot-hip alignment with Savitzky-Golay filtering and `scipy.signal.find_peaks`) and toe offs (vertical acceleration and position transitions). Computes stride time, stride length, stance/swing phase durations per side. Enforces physiological range validation (0.3–2.0 s stride time) and filters outliers.
+
+### cadence.py
+
+Cadence calculation with two methods: a primary event-based method (`_calculate_from_events`) that counts heel strikes over duration, and a fallback landmark-based method (`_estimate_from_landmarks`) that analyzes vertical foot oscillation via peak detection. Also provides `calculate_instantaneous_cadence()` (sliding-window time series) and `analyze_cadence_variability()` (mean, SD, CV, variability index).
+
+### symmetry.py
+
+Bilateral symmetry assessment across three domains — temporal (stride/stance/swing time), spatial (stride length, step width, lateral deviation), and kinematic (joint angle ROM, knee flexion and hip extension patterns via cross-correlation with Pearson coefficient). Uses Robinson's Symmetry Index and combines sub-indices into an overall symmetry score.
 
 ## Quick Start
 
@@ -50,6 +77,10 @@ metrics = analyzer.analyze(landmarks_sequence)
 print(f"Cadence: {metrics.cadence:.1f} steps/min")
 print(f"Stride Time: {metrics.stride_time:.3f} s")
 print(f"Symmetry Index: {metrics.symmetry_index:.3f}")
+print(f"Events Detected: {len(metrics.events)}")
+
+# Export
+metrics_dict = metrics.to_dict()
 ```
 
 ## Data Structures
@@ -59,7 +90,7 @@ print(f"Symmetry Index: {metrics.symmetry_index:.3f}")
 Represents a single gait event (heel strike or toe off).
 
 **Attributes:**
-- `event_type`: Type of event (HEEL_STRIKE, TOE_OFF, etc.)
+- `event_type`: Type of event (HEEL_STRIKE, TOE_OFF, MID_STANCE, MID_SWING)
 - `timestamp`: Time in seconds
 - `frame_number`: Video frame number
 - `foot`: Which foot (LEFT or RIGHT)
@@ -93,45 +124,63 @@ Detects gait events and calculates stride metrics.
 - Identifies toe off events from vertical acceleration
 - Calculates stride timing and spatial metrics
 - Separates stance and swing phases
+- Validates physiological ranges (0.3–2.0 s stride time), filters outliers, and handles missing landmarks gracefully
 
 **Key Methods:**
 - `detect_heel_strikes()`: Find initial contact events
 - `detect_toe_offs()`: Find end of contact events
 - `calculate()`: Compute all stride metrics
 
+**Metric Calculations:**
+- Stride time: Time between consecutive heel strikes of same foot
+- Stride length: Euclidean distance traveled between strikes
+- Stance phase: Heel strike to toe off duration
+- Swing phase: Toe off to next heel strike duration
+
 ### CadenceAnalyzer
 
 Calculates running cadence (steps per minute).
 
-**Algorithm:**
+**Primary Method** (`_calculate_from_events`):
 - Counts heel strikes over analysis duration
-- Can work with detected events or estimate from landmarks
 - Computes separate cadence for each foot
-- Analyzes cadence variability
+- Calculates average step time
+
+**Fallback Method** (`_estimate_from_landmarks`):
+- Direct landmark analysis when events are unavailable
+- Analyzes vertical foot oscillation
+- Uses peak detection on smoothed signals
+- Estimates step frequency
+
+**Typical Values:**
+- Recreational runners: 160–180 steps/min
+- Elite runners: 180–200+ steps/min
 
 **Key Methods:**
 - `calculate()`: Compute overall cadence
-- `calculate_instantaneous_cadence()`: Cadence time series
-- `analyze_cadence_variability()`: Rhythm consistency metrics
+- `calculate_instantaneous_cadence()`: Cadence time series (sliding window)
+- `analyze_cadence_variability()`: Rhythm consistency metrics (mean, SD, CV, variability index)
 
 ### SymmetryAnalyzer
 
-Assesses bilateral gait symmetry.
+Assesses bilateral gait symmetry across three domains.
 
-**Metrics Computed:**
-- **Temporal Symmetry**: Stride time, stance time, swing time
-- **Spatial Symmetry**: Stride length, step width
-- **Kinematic Symmetry**: Joint angle ranges and patterns
+**Three-Component Analysis:**
+
+1. **Temporal Symmetry**: Stride time, stance time, swing time
+2. **Spatial Symmetry**: Stride length, step width, lateral deviation
+3. **Kinematic Symmetry**: Joint angle ROM, knee flexion patterns, hip extension patterns, cross-correlation of angle time series (Pearson coefficient)
 
 **Algorithm:**
 - Uses Robinson's Symmetry Index: SI = 1 - |L - R| / (0.5 * (L + R))
 - Compares range of motion between sides
 - Calculates correlation between left/right angle patterns
-- Combines metrics into overall symmetry index
+- Combines sub-indices into overall symmetry index
 
 **Key Methods:**
 - `calculate()`: Compute all symmetry metrics
-- `compare_sides()`: Direct left-right comparison
+- `compare_sides()`: Direct left-right comparison with percentage differences
+- `_compute_symmetry_index()`: Standardized symmetry calculation
 
 ## Biomechanics Background
 
@@ -274,6 +323,23 @@ angle = arccos((v1 · v2) / (|v1| * |v2|))
 
 Where v1 and v2 are vectors from joint center to adjacent landmarks.
 
+## Architecture & Design
+
+- **Separation of Concerns**: Events, metrics, and calculators are cleanly separated
+- **Extensibility**: The `BaseMetricCalculator` ABC pattern makes it straightforward to add new analyzers
+- **Type Safety**: Full type annotations and dataclasses for immutable data structures
+- **Orchestration**: `GaitAnalyzer` manages calculator sequencing and result aggregation
+- **Robustness**: Reasonable defaults for edge cases, fallback algorithms when primary methods fail
+
+## Integration Points
+
+The module is designed to integrate with the rest of the pipeline:
+
+1. **Video Module** (`asdrp.video`): Receives video frames
+2. **Pose Module** (`asdrp.pose`): Receives MediaPipe landmarks via `LandmarkProcessor.to_dict()`
+3. **Visualization Module** (`asdrp.visualization`): Provides metrics for plotting and overlay
+4. **Utils Module** (`asdrp.utils`): Uses shared geometry and smoothing utilities
+
 ## Performance Considerations
 
 - **Frame Rate**: Higher frame rates (60+ fps) improve event detection accuracy
@@ -281,6 +347,14 @@ Where v1 and v2 are vectors from joint center to adjacent landmarks.
 - **Camera Angle**: Side view provides best results for sagittal plane analysis
 - **Lighting**: Consistent lighting helps MediaPipe tracking
 - **Duration**: Minimum 3-5 strides recommended for reliable statistics
+- **Speed**: ~1000 frames/sec processing (hardware-dependent)
+- **Memory**: O(n) where n is number of frames
+
+## Testing Recommendations
+
+1. **Unit Tests**: Event detection accuracy, angle calculation precision, symmetry index formulas
+2. **Integration Tests**: Full pipeline with synthetic data, edge cases (very fast/slow running), missing landmark handling
+3. **Validation Tests**: Comparison with motion capture systems, manual annotation correlation, inter-rater reliability
 
 ## Validation
 
@@ -309,6 +383,8 @@ Potential additions:
 - Vertical oscillation analysis
 - Running economy metrics
 - Fatigue detection algorithms
+- Spatial calibration for absolute measurements
+- Tutorial notebooks
 
 ## References
 
