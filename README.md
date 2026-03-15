@@ -99,7 +99,7 @@ gaitanalysis/
 │   ├── models/               # Place pose_landmarker.task here
 │   └── outputs/              # Generated results (CSV, PNG, HTML)
 ├── notebooks/
-│   └── gait_analysis_demo.ipynb
+│   └── gait_analysis.ipynb
 ├── pyproject.toml
 └── uv.lock
 ```
@@ -163,7 +163,7 @@ flowchart LR
 Open the notebook from the project root:
 
 ```bash
-uv run jupyter notebook notebooks/gait_analysis_demo.ipynb
+uv run jupyter notebook notebooks/gait_analysis.ipynb
 ```
 
 The notebook walks through the same stages as the pipeline, but exposes each step individually so you can inspect intermediate results. The diagram below shows how the notebook is organized and where each stage feeds into the next:
